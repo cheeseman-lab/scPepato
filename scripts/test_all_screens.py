@@ -16,12 +16,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-
-def log(msg: str):
-    """Print with immediate flush for real-time output."""
-    print(msg, flush=True)
-
-
 from scpepato.data import (
     METADATA_COLS,
     detect_feature_columns_from_schema,
@@ -32,6 +26,12 @@ from scpepato.data import (
 )
 from scpepato.embedding import run_phate, run_tsne, run_umap
 
+
+def log(msg: str):
+    """Print with immediate flush for real-time output."""
+    print(msg, flush=True)
+
+
 # Load screens from CSV
 SCREENS_CSV = Path(__file__).parent.parent / "data" / "screens.csv"
 N_CELLS_SAMPLE = 5000  # Small sample for quick testing
@@ -41,7 +41,7 @@ def load_primary_screens() -> list[dict]:
     """Load primary screen configurations from screens.csv."""
     df = pd.read_csv(SCREENS_CSV)
     # Filter to primary=True and has aligned_parquet
-    primary = df[(df["primary"] == True) & (df["aligned_parquet"].notna())]
+    primary = df[df["primary"] & df["aligned_parquet"].notna()]
 
     screens = []
     for _, row in primary.iterrows():
