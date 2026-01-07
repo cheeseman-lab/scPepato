@@ -59,6 +59,10 @@ outputs/
 # Logs
 *.log
 logs/
+slurm/logs/
+
+# Weights & Biases
+wandb/
 
 # Temporary files (must be in repo, not /tmp - shared filesystem)
 tmp/

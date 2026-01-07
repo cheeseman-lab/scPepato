@@ -33,6 +33,9 @@ dependencies = [
     "plotly",
     "tifffile",
     "pillow",
+    # VAE models
+    "torch",
+    "wandb",
 ]
 
 [project.optional-dependencies]
@@ -41,9 +44,6 @@ dev = [
     "ruff",
     "ipykernel",
     "jupyterlab",
-]
-torch = [
-    "torch",
 ]
 
 [tool.setuptools.packages.find]

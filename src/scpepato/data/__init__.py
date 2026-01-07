@@ -1,5 +1,16 @@
 """Data loading and processing utilities for scPepato."""
 
+from scpepato.data.features import (
+    CellProfilerDataset,
+    FeatureNormalizer,
+    create_label_encoders,
+    load_filtered_parquet,
+    load_multiple_filtered_parquets,
+    prepare_vae_data,
+)
+from scpepato.data.features import (
+    get_feature_columns as get_cellprofiler_feature_columns,
+)
 from scpepato.data.loader import (
     LOCATION_COLS,
     METADATA_COLS,
@@ -17,6 +28,7 @@ from scpepato.data.loader import (
 )
 
 __all__ = [
+    # Original loader functions
     "load_single_cell_data",
     "load_filtered_data",
     "load_aggregated_data",
@@ -30,4 +42,12 @@ __all__ = [
     "METADATA_COLS",
     "LOCATION_COLS",
     "NON_FEATURE_COLS",
+    # VAE data utilities
+    "CellProfilerDataset",
+    "FeatureNormalizer",
+    "create_label_encoders",
+    "get_cellprofiler_feature_columns",
+    "load_filtered_parquet",
+    "load_multiple_filtered_parquets",
+    "prepare_vae_data",
 ]
