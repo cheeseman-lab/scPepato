@@ -28,6 +28,11 @@ dependencies = [
     "seaborn",
     "scikit-learn",
     "tqdm",
+    # Interactive visualization
+    "dash",
+    "plotly",
+    "tifffile",
+    "pillow",
 ]
 
 [project.optional-dependencies]
