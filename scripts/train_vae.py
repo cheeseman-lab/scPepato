@@ -159,6 +159,12 @@ def main():
         help="Beta for KL term (1.0 = standard VAE)",
     )
     parser.add_argument(
+        "--kl-warmup-epochs",
+        type=int,
+        default=10,
+        help="Epochs to linearly anneal beta from 0 to target (prevents posterior collapse)",
+    )
+    parser.add_argument(
         "--dropout",
         type=float,
         default=0.1,
@@ -278,7 +284,7 @@ def main():
     print(f"Batch col: {args.batch_col}")
     print(f"Latent dim: {args.latent_dim}")
     print(f"Hidden dims: {args.hidden_dims}")
-    print(f"Beta: {args.beta}")
+    print(f"Beta: {args.beta} (warmup: {args.kl_warmup_epochs} epochs)")
     print(f"Device: {args.device}")
     print(f"Output: {output_dir}")
     print(f"Wandb: {'disabled' if args.no_wandb else args.wandb_project}")
@@ -341,6 +347,7 @@ def main():
         hidden_dims=args.hidden_dims,
         dropout=args.dropout,
         beta=args.beta,
+        kl_warmup_epochs=args.kl_warmup_epochs,
         device=args.device,
         wandb=wandb_config,
     )
@@ -353,6 +360,7 @@ def main():
         "n_cells": args.n_cells,
         "val_fraction": args.val_fraction,
         "seed": args.seed,
+        "kl_warmup_epochs": args.kl_warmup_epochs,
     }
 
     # Train

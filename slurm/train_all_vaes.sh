@@ -3,28 +3,50 @@
 # Submit all VAE variants for training comparison
 # =============================================================================
 # Usage:
-#   ./slurm/train_all_vaes.sh           # Default: 50k cells
-#   ./slurm/train_all_vaes.sh 100000    # 100k cells
+#   ./slurm/train_all_vaes.sh           # Default: 20k cells, 100 epochs
+#   ./slurm/train_all_vaes.sh 50000     # 50k cells
+#   ./slurm/train_all_vaes.sh 20000 50  # 20k cells, 50 epochs
+#
+# Submits 6 jobs total:
+#   - 3 model types (vanilla, batch-aware, conditional)
+#   - 2 data modes (single-well, multi-well)
 # =============================================================================
 
-N_CELLS=${1:-50000}
+N_CELLS=${1:-20000}
+EPOCHS=${2:-100}
 
-echo "Submitting VAE training jobs for $N_CELLS cells..."
+echo "=============================================="
+echo "Submitting VAE training jobs"
+echo "=============================================="
+echo "N cells: $N_CELLS"
+echo "Epochs: $EPOCHS"
 echo ""
 
 # Create log directory
 mkdir -p slurm/logs
 
-# Submit all three variants
-JOB1=$(sbatch --parsable slurm/train_vae.sbatch vanilla $N_CELLS)
-echo "Vanilla VAE:     Job $JOB1"
+# Model types
+MODELS=("vanilla" "batch-aware" "conditional")
+DATA_MODES=("single" "multi")
 
-JOB2=$(sbatch --parsable slurm/train_vae.sbatch batch-aware $N_CELLS)
-echo "Batch-Aware VAE: Job $JOB2"
+echo "Submitting 6 jobs (3 models × 2 data modes)..."
+echo ""
 
-JOB3=$(sbatch --parsable slurm/train_vae.sbatch conditional $N_CELLS)
-echo "Conditional VAE: Job $JOB3"
+for model in "${MODELS[@]}"; do
+    for data_mode in "${DATA_MODES[@]}"; do
+        JOB_ID=$(sbatch --parsable slurm/train_vae.sbatch "$model" "$data_mode" "$N_CELLS" "$EPOCHS")
+        echo "  ${model} (${data_mode}): Job $JOB_ID"
+    done
+done
 
 echo ""
-echo "Monitor with: squeue -u $USER"
-echo "View logs:    tail -f slurm/logs/vae_train_<jobid>.out"
+echo "=============================================="
+echo "All jobs submitted!"
+echo "=============================================="
+echo ""
+echo "Monitor with:"
+echo "  squeue -u $USER"
+echo "  tail -f slurm/logs/vae_train_<jobid>.out"
+echo ""
+echo "Results will be saved to:"
+echo "  outputs/vae/<model>_<data_mode>_${N_CELLS}/"

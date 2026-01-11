@@ -59,6 +59,10 @@ class TrainingConfig:
     dropout: float = 0.1
     beta: float = 1.0
 
+    # KL annealing (warmup) - prevents posterior collapse
+    kl_warmup_epochs: int = 10  # Epochs to linearly increase beta from 0 to target
+    kl_warmup_start: float = 0.0  # Starting beta value
+
     # Scheduler
     use_scheduler: bool = True
     scheduler_patience: int = 5
@@ -235,6 +239,7 @@ def log_wandb_metrics(
     val_metrics: dict[str, float],
     learning_rate: float,
     epoch_time: float,
+    current_beta: float | None = None,
 ) -> None:
     """Log metrics to wandb.
 
@@ -244,23 +249,27 @@ def log_wandb_metrics(
         val_metrics: Validation metrics dict
         learning_rate: Current learning rate
         epoch_time: Time taken for epoch
+        current_beta: Current beta value (for KL annealing)
     """
     if not WANDB_AVAILABLE:
         return
 
-    wandb.log(
-        {
-            "epoch": epoch,
-            "train/loss": train_metrics["loss"],
-            "train/recon_loss": train_metrics["recon_loss"],
-            "train/kl_loss": train_metrics["kl_loss"],
-            "val/loss": val_metrics["loss"],
-            "val/recon_loss": val_metrics["recon_loss"],
-            "val/kl_loss": val_metrics["kl_loss"],
-            "learning_rate": learning_rate,
-            "epoch_time": epoch_time,
-        }
-    )
+    metrics = {
+        "epoch": epoch,
+        "train/loss": train_metrics["loss"],
+        "train/recon_loss": train_metrics["recon_loss"],
+        "train/kl_loss": train_metrics["kl_loss"],
+        "val/loss": val_metrics["loss"],
+        "val/recon_loss": val_metrics["recon_loss"],
+        "val/kl_loss": val_metrics["kl_loss"],
+        "learning_rate": learning_rate,
+        "epoch_time": epoch_time,
+    }
+
+    if current_beta is not None:
+        metrics["beta"] = current_beta
+
+    wandb.log(metrics)
 
 
 @torch.no_grad()
@@ -572,6 +581,36 @@ def finish_wandb() -> None:
 # =============================================================================
 
 
+def compute_annealed_beta(
+    epoch: int,
+    target_beta: float,
+    warmup_epochs: int,
+    warmup_start: float = 0.0,
+) -> float:
+    """Compute annealed beta for KL warmup.
+
+    Linearly increases beta from warmup_start to target_beta over warmup_epochs.
+
+    Args:
+        epoch: Current epoch (0-indexed)
+        target_beta: Final beta value
+        warmup_epochs: Number of epochs for warmup
+        warmup_start: Starting beta value
+
+    Returns:
+        Current beta value
+    """
+    if warmup_epochs <= 0:
+        return target_beta
+
+    if epoch >= warmup_epochs:
+        return target_beta
+
+    # Linear interpolation
+    progress = epoch / warmup_epochs
+    return warmup_start + progress * (target_beta - warmup_start)
+
+
 def _get_model_type(model: nn.Module) -> str:
     """Detect VAE model type from class name."""
     class_name = model.__class__.__name__
@@ -652,6 +691,7 @@ def train_epoch(
     optimizer: torch.optim.Optimizer,
     device: str,
     log_every: int = 10,
+    current_beta: float | None = None,
 ) -> dict[str, float]:
     """Train for one epoch.
 
@@ -661,6 +701,7 @@ def train_epoch(
         optimizer: Optimizer
         device: Device to use
         log_every: Log every N batches
+        current_beta: Override model's beta for KL annealing (None = use model's beta)
 
     Returns:
         Dictionary with average losses
@@ -673,26 +714,36 @@ def train_epoch(
 
     model_type = _get_model_type(model)
 
-    for batch_idx, batch in enumerate(train_loader):
-        x = batch["features"].to(device)
+    # Store original beta if overriding
+    original_beta = model.beta
+    if current_beta is not None:
+        model.beta = current_beta
 
-        # Forward pass
-        optimizer.zero_grad()
-        output = _forward_model(model, batch, device, model_type)
+    try:
+        for batch_idx, batch in enumerate(train_loader):
+            x = batch["features"].to(device)
 
-        # Compute loss
-        losses = model.loss_function(x, output["recon"], output["mu"], output["logvar"])
-        loss = losses["loss"]
+            # Forward pass
+            optimizer.zero_grad()
+            output = _forward_model(model, batch, device, model_type)
 
-        # Backward pass
-        loss.backward()
-        optimizer.step()
+            # Compute loss
+            losses = model.loss_function(x, output["recon"], output["mu"], output["logvar"])
+            loss = losses["loss"]
 
-        # Accumulate losses
-        total_loss += losses["loss"].item()
-        total_recon += losses["recon_loss"].item()
-        total_kl += losses["kl_loss"].item()
-        n_batches += 1
+            # Backward pass
+            loss.backward()
+            optimizer.step()
+
+            # Accumulate losses
+            total_loss += losses["loss"].item()
+            total_recon += losses["recon_loss"].item()
+            total_kl += losses["kl_loss"].item()
+            n_batches += 1
+    finally:
+        # Restore original beta
+        if current_beta is not None:
+            model.beta = original_beta
 
     return {
         "loss": total_loss / n_batches,
@@ -706,6 +757,7 @@ def validate(
     model: nn.Module,
     val_loader: DataLoader,
     device: str,
+    current_beta: float | None = None,
 ) -> dict[str, float]:
     """Validate model.
 
@@ -713,6 +765,7 @@ def validate(
         model: VAE model
         val_loader: Validation data loader
         device: Device to use
+        current_beta: Override model's beta for KL annealing (None = use model's beta)
 
     Returns:
         Dictionary with average losses
@@ -725,18 +778,28 @@ def validate(
 
     model_type = _get_model_type(model)
 
-    for batch in val_loader:
-        x = batch["features"].to(device)
+    # Store original beta if overriding
+    original_beta = model.beta
+    if current_beta is not None:
+        model.beta = current_beta
 
-        # Forward pass
-        output = _forward_model(model, batch, device, model_type)
-        losses = model.loss_function(x, output["recon"], output["mu"], output["logvar"])
+    try:
+        for batch in val_loader:
+            x = batch["features"].to(device)
 
-        # Accumulate losses
-        total_loss += losses["loss"].item()
-        total_recon += losses["recon_loss"].item()
-        total_kl += losses["kl_loss"].item()
-        n_batches += 1
+            # Forward pass
+            output = _forward_model(model, batch, device, model_type)
+            losses = model.loss_function(x, output["recon"], output["mu"], output["logvar"])
+
+            # Accumulate losses
+            total_loss += losses["loss"].item()
+            total_recon += losses["recon_loss"].item()
+            total_kl += losses["kl_loss"].item()
+            n_batches += 1
+    finally:
+        # Restore original beta
+        if current_beta is not None:
+            model.beta = original_beta
 
     return {
         "loss": total_loss / n_batches,
@@ -830,6 +893,7 @@ def train_vae(
     print(f"  Val samples: {len(val_dataset):,}")
     print(f"  Batch size: {config.batch_size}")
     print(f"  Epochs: {config.epochs}")
+    print(f"  Beta: {config.beta} (warmup: {config.kl_warmup_epochs} epochs)")
     if use_wandb:
         print(f"  Wandb: {config.wandb.project} (run: {wandb.run.name})")
     print()
@@ -838,11 +902,21 @@ def train_vae(
         for epoch in range(config.epochs):
             epoch_start = time.time()
 
+            # Compute annealed beta for KL warmup
+            current_beta = compute_annealed_beta(
+                epoch=epoch,
+                target_beta=config.beta,
+                warmup_epochs=config.kl_warmup_epochs,
+                warmup_start=config.kl_warmup_start,
+            )
+
             # Train
-            train_metrics = train_epoch(model, train_loader, optimizer, device, config.log_every)
+            train_metrics = train_epoch(
+                model, train_loader, optimizer, device, config.log_every, current_beta
+            )
 
             # Validate
-            val_metrics = validate(model, val_loader, device)
+            val_metrics = validate(model, val_loader, device, current_beta)
 
             # Update scheduler
             if scheduler:
@@ -868,6 +942,7 @@ def train_vae(
                     val_metrics=val_metrics,
                     learning_rate=lr,
                     epoch_time=epoch_time,
+                    current_beta=current_beta,
                 )
 
             # Save best model
@@ -910,12 +985,14 @@ def train_vae(
 
             # Print progress
             best_marker = " *" if is_best else ""
+            warmup_marker = " [warmup]" if epoch < config.kl_warmup_epochs else ""
             print(
                 f"Epoch {epoch + 1:3d}/{config.epochs} | "
                 f"Train: {train_metrics['loss']:.4f} (R:{train_metrics['recon_loss']:.4f} K:{train_metrics['kl_loss']:.4f}) | "
                 f"Val: {val_metrics['loss']:.4f} | "
+                f"β: {current_beta:.3f} | "
                 f"LR: {lr:.2e} | "
-                f"Time: {epoch_time:.1f}s{best_marker}"
+                f"Time: {epoch_time:.1f}s{warmup_marker}{best_marker}"
             )
 
             # Check early stopping

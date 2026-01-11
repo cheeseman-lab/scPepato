@@ -402,6 +402,13 @@ def prepare_vae_data(
     else:
         raise ValueError("Must provide either parquet_path or parquet_dir")
 
+    # Drop rows with NA values in features
+    na_mask = features_df.isna().any(axis=1)
+    if na_mask.sum() > 0:
+        print(f"  Dropping {na_mask.sum()} rows with NA values")
+        features_df = features_df[~na_mask].reset_index(drop=True)
+        metadata_df = metadata_df[~na_mask].reset_index(drop=True)
+
     # Create label encoders
     batch_encoder, pert_encoder, batch_labels, pert_labels = create_label_encoders(
         metadata_df, batch_col=batch_col, perturbation_col=perturbation_col
