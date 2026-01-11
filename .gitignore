@@ -73,3 +73,13 @@ Thumbs.db
 
 # Local dependencies (reference copies)
 brieflow/
+
+# Claude Code
+.claude/
+CLAUDE.md
+
+# Documentation (generated)
+docs/
+
+# Results (generated)
+results/

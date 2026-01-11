@@ -23,6 +23,7 @@ Examples:
 """
 
 import argparse
+import json
 import os
 from pathlib import Path
 
@@ -45,7 +46,7 @@ DEFAULT_PARQUET_DIR = Path(
     "/lab/ops_analysis/cheeseman/mayon-analysis/analysis/brieflow_output/aggregate/parquets"
 )
 DEFAULT_PATTERN = "*CeCl-all*GLYCORNA__filtered.parquet"
-OUTPUT_DIR = Path("outputs/vae")
+OUTPUT_DIR = Path("outputs/embeddings")
 
 
 def create_model(
@@ -263,9 +264,11 @@ def main():
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
-    # Experiment name
-    exp_name = args.name or f"{args.model}_vae"
-    output_dir = args.output_dir / exp_name
+    # Experiment name and output directory
+    # Uses format: outputs/embeddings/{model_type}_vae/mayon_{n_cells}/
+    model_dir_name = f"{args.model.replace('-', '_')}_vae"
+    exp_name = args.name or f"mayon_{args.n_cells}"
+    output_dir = args.output_dir / model_dir_name / exp_name
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Model type mapping for nice names
@@ -390,6 +393,40 @@ def main():
     # Save embeddings
     np.save(output_dir / "train_embeddings.npy", train_embeddings)
     np.save(output_dir / "val_embeddings.npy", val_embeddings)
+
+    # Save combined embeddings for standardized format
+    all_embeddings = np.vstack([train_embeddings, val_embeddings])
+    np.save(output_dir / "embeddings.npy", all_embeddings)
+
+    # Save manifest
+    manifest = {
+        "method": model_dir_name,  # e.g., "vanilla_vae", "batch_aware_vae"
+        "type": "vae",
+        "model_type": args.model,
+        "input_dim": data["n_features"],
+        "n_dims": args.latent_dim,
+        "latent_dim": args.latent_dim,
+        "hidden_dims": args.hidden_dims,
+        "n_cells": len(all_embeddings),
+        "n_train": len(train_embeddings),
+        "n_val": len(val_embeddings),
+        "n_batches": data["n_batches"],
+        "n_perturbations": data["n_perturbations"],
+        "beta": args.beta,
+        "parquet_dir": str(args.parquet_dir),
+        "pattern": args.pattern,
+        "seed": args.seed,
+        "files": {
+            "embeddings": "embeddings.npy",
+            "model": "best_model.pt",
+            "normalizer": "normalizer.npz",
+            "train_embeddings": "train_embeddings.npy",
+            "val_embeddings": "val_embeddings.npy",
+            "history": "history.json",
+        },
+    }
+    with open(output_dir / "manifest.json", "w") as f:
+        json.dump(manifest, f, indent=2)
 
     print("\nTraining complete!")
     print(f"  Best val loss: {min(history.val_loss):.4f}")
